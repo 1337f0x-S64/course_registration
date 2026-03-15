@@ -27,6 +27,7 @@ course_registration/
 │   └── gui/              # Tkinter desktop interface
 └── bootstrap/            # Wires everything together, seeds demo data
 
+
 DDD in this project
 
 The project follows Domain-Driven Design DDD, which means business rules have a clear home. 
