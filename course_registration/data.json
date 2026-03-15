@@ -1,0 +1,160 @@
+{
+  "students": [
+    {
+      "student_id": "S001",
+      "name": "Pablo Vasquez",
+      "program": "Computer Science",
+      "completed_courses": [
+        "CS101"
+      ]
+    },
+    {
+      "student_id": "S002",
+      "name": "Natalie Bustos",
+      "program": "Computer Science",
+      "completed_courses": []
+    },
+    {
+      "student_id": "S003",
+      "name": "Luis Garcia",
+      "program": "Mathematics",
+      "completed_courses": []
+    }
+  ],
+  "courses": [
+    {
+      "course_code": "CS101",
+      "title": "Intro to Computer Science",
+      "credits": 3,
+      "prerequisites": []
+    },
+    {
+      "course_code": "CS201",
+      "title": "Data Structures",
+      "credits": 3,
+      "prerequisites": [
+        "CS101"
+      ]
+    },
+    {
+      "course_code": "CS301",
+      "title": "Algorithms",
+      "credits": 3,
+      "prerequisites": [
+        "CS201"
+      ]
+    },
+    {
+      "course_code": "MATH101",
+      "title": "Calculus I",
+      "credits": 4,
+      "prerequisites": []
+    },
+    {
+      "course_code": "MATH201",
+      "title": "Calculus II",
+      "credits": 4,
+      "prerequisites": [
+        "MATH101"
+      ]
+    }
+  ],
+  "instructors": [
+    {
+      "instructor_id": "I001",
+      "name": "Dr. Ana Torres",
+      "department": "Computer Science"
+    },
+    {
+      "instructor_id": "I002",
+      "name": "Dr. Luis Mendez",
+      "department": "Mathematics"
+    }
+  ],
+  "offerings": [
+    {
+      "offering_id": "OFF001",
+      "course_code": "CS101",
+      "instructor_id": "I001",
+      "semester": {
+        "semester_id": "SEM-2026-SP",
+        "term": "Spring",
+        "year": 2026,
+        "start_date": "2026-01-15",
+        "end_date": "2026-05-31"
+      },
+      "capacity": 2,
+      "status": "OPEN",
+      "schedule": [
+        {
+          "day": "Monday",
+          "start_time": "08:00",
+          "end_time": "09:30"
+        },
+        {
+          "day": "Wednesday",
+          "start_time": "08:00",
+          "end_time": "09:30"
+        }
+      ],
+      "enrolled": [],
+      "waitlist": []
+    },
+    {
+      "offering_id": "OFF002",
+      "course_code": "CS201",
+      "instructor_id": "I001",
+      "semester": {
+        "semester_id": "SEM-2026-SP",
+        "term": "Spring",
+        "year": 2026,
+        "start_date": "2026-01-15",
+        "end_date": "2026-05-31"
+      },
+      "capacity": 2,
+      "status": "OPEN",
+      "schedule": [
+        {
+          "day": "Tuesday",
+          "start_time": "10:00",
+          "end_time": "11:30"
+        },
+        {
+          "day": "Thursday",
+          "start_time": "10:00",
+          "end_time": "11:30"
+        }
+      ],
+      "enrolled": [],
+      "waitlist": []
+    },
+    {
+      "offering_id": "OFF003",
+      "course_code": "MATH101",
+      "instructor_id": "I002",
+      "semester": {
+        "semester_id": "SEM-2026-SP",
+        "term": "Spring",
+        "year": 2026,
+        "start_date": "2026-01-15",
+        "end_date": "2026-05-31"
+      },
+      "capacity": 3,
+      "status": "OPEN",
+      "schedule": [
+        {
+          "day": "Monday",
+          "start_time": "10:00",
+          "end_time": "11:30"
+        },
+        {
+          "day": "Wednesday",
+          "start_time": "10:00",
+          "end_time": "11:30"
+        }
+      ],
+      "enrolled": [],
+      "waitlist": []
+    }
+  ]
+}
