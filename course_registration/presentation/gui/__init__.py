@@ -329,7 +329,7 @@ class _SearchTab(ttk.Frame):
 
         top = ttk.Frame(self)
         top.pack(fill="x", pady=(0, 6))
-        ttk.Label(top, text="Keyword:").pack(side="left")
+        ttk.Label(top, text="Course:").pack(side="left")
         self._kw = ttk.Entry(top, width=24)
         self._kw.pack(side="left", padx=6)
         ttk.Button(top, text="Search", style="Primary.TButton",
