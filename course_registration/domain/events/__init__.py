@@ -23,6 +23,35 @@ class DomainEvent:
     """Base class for all domain events.  Every event records when it occurred."""
     occurred_on: datetime
 
+@dataclass(frozen=True)
+class StudentUpdated(DomainEvent):
+    student_id: str
+    name: str
+
+@dataclass(frozen=True)
+class StudentDeleted(DomainEvent):
+    student_id: str
+    name: str
+
+@dataclass(frozen=True)
+class InstructorUpdated(DomainEvent):
+    instructor_id: str
+    name: str
+
+@dataclass(frozen=True)
+class InstructorDeleted(DomainEvent):
+    instructor_id: str
+    name: str
+
+@dataclass(frozen=True)
+class OfferingUpdated(DomainEvent):
+    offering_id: str
+    course_code: str
+
+@dataclass(frozen=True)
+class OfferingDeleted(DomainEvent):
+    offering_id: str
+    course_code: str
 
 # ---------------------------------------------------------------------------
 # Enrollment events (raised by CourseOffering aggregate)

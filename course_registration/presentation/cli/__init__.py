@@ -8,54 +8,55 @@ The CLI has exactly three responsibilities:
 
 It contains ZERO business logic and ZERO domain imports.
 
-A future GUI module (presentation/gui/__init__.py) will have the same
-three responsibilities using widgets instead of input() and print().
-Both frontends call the same service methods and receive the same DTOs —
-no changes are required in the domain, application, or infrastructure layers.
-
-Course management
------------------
-Option 8 in the main menu opens a Course Management submenu with three
-actions: Add Course, Edit Course, and Delete Course.  All three call the
-corresponding service methods and display the returned DTO or ErrorDTO.
+Submenus
+--------
+Option 8  — Course management     (add / edit / delete)
+Option 9  — Student management    (add / edit / delete)
+Option 10 — Instructor management (add / edit / delete)
+Option 11 — Offering management   (create / edit / open / close / delete)
 """
 
 from __future__ import annotations
 import os
 import sys
 
-# Allow running this file directly from the presentation/cli directory.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 from course_registration.domain.events    import DomainEvent
+from course_registration.domain.value_objects import ScheduleSlot, Semester
 from course_registration.application.dtos import (
-    OfferingDTO, StudentDTO, CourseDTO,
-    CourseManagementResultDTO, EnrollmentResultDTO, ErrorDTO,
+    OfferingDTO, StudentDTO, CourseDTO, InstructorDTO,
+    CourseManagementResultDTO, StudentManagementResultDTO,
+    InstructorManagementResultDTO, OfferingManagementResultDTO,
+    EnrollmentResultDTO, ErrorDTO,
 )
-from course_registration.bootstrap import create_app, seed_demo_data
+from course_registration.bootstrap import create_app, seed_demo_data, DEFAULT_SEMESTER
 
 
 # ---------------------------------------------------------------------------
-# Event handler — CLI-specific
+# Event handler
 # ---------------------------------------------------------------------------
-# The GUI will register its own handler (e.g. append to a log panel) without
-# touching this function or the application service.
 
 def _cli_event_handler(event: DomainEvent) -> None:
     """Print a one-line log entry for every domain event that fires."""
     name = event.__class__.__name__
-    # Enrollment events carry student_id; course events do not.
-    if hasattr(event, "student_id"):
+    if hasattr(event, "student_id") and hasattr(event, "course_code"):
         print(f"  [EVENT] {name}: student={event.student_id}, course={event.course_code}")
-    else:
+    elif hasattr(event, "student_id"):
+        print(f"  [EVENT] {name}: student={event.student_id}")
+    elif hasattr(event, "instructor_id"):
+        print(f"  [EVENT] {name}: instructor={event.instructor_id}")
+    elif hasattr(event, "offering_id"):
+        print(f"  [EVENT] {name}: offering={event.offering_id}")
+    elif hasattr(event, "course_code"):
         print(f"  [EVENT] {name}: course={event.course_code}")
+    else:
+        print(f"  [EVENT] {name}")
 
 
 # ---------------------------------------------------------------------------
-# DTO formatters — CLI-specific
+# DTO formatters
 # ---------------------------------------------------------------------------
-# These functions know how to render DTOs as terminal text.
-# A GUI would have equivalent functions that construct widgets.
 
 def _fmt_offering(o: OfferingDTO) -> str:
     seats = f"{o.enrolled_count}/{o.capacity}"
@@ -83,8 +84,47 @@ def _fmt_course(c: CourseDTO) -> str:
         f"       Prerequisites: {prereqs}"
     )
 
+def _fmt_instructor(i: InstructorDTO) -> str:
+    return (
+        f"  [{i.instructor_id}] {i.name}\n"
+        f"       Department: {i.department}"
+    )
+
 def _header(title: str) -> None:
     print(f"\n{chr(9472)*55}\n  {title}\n{chr(9472)*55}")
+
+
+# ---------------------------------------------------------------------------
+# Schedule slot parser
+# ---------------------------------------------------------------------------
+
+def _parse_schedule(raw: str) -> tuple[list[ScheduleSlot], str]:
+    """
+    Parse a comma-separated schedule string into ScheduleSlot objects.
+
+    Accepts entries like:  Monday 08:00-09:30, Wednesday 08:00-09:30
+    Returns (slots, error_message).  error_message is empty on success.
+    """
+    if not raw.strip():
+        return [], ""
+
+    slots = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        tokens = part.split()
+        if len(tokens) != 2 or "-" not in tokens[1]:
+            return [], (
+                f"Cannot parse '{part}'. "
+                "Use format: Monday 08:00-09:30"
+            )
+        day = tokens[0].capitalize()
+        times = tokens[1].split("-")
+        if len(times) != 2:
+            return [], f"Invalid time range in '{part}'. Use HH:MM-HH:MM."
+        slots.append(ScheduleSlot(day=day, start_time=times[0], end_time=times[1]))
+    return slots, ""
 
 
 # ---------------------------------------------------------------------------
@@ -92,25 +132,17 @@ def _header(title: str) -> None:
 # ---------------------------------------------------------------------------
 
 def _course_management_menu(svc, persistence, repos) -> None:
-    """
-    Submenu for adding, editing, and deleting courses.
-
-    Each action calls the corresponding service method and displays the
-    returned CourseManagementResultDTO or ErrorDTO.  No business logic
-    lives here — only input collection and output formatting.
-    """
     while True:
         _header("Course Management")
         print("  1. List all courses")
         print("  2. Add a course")
         print("  3. Edit a course")
         print("  4. Delete a course")
-        print("  0. Back to main menu\n")
+        print("  0. Back\n")
 
         choice = input("  Select option: ").strip()
 
         if choice == "1":
-            # ── List ──────────────────────────────────────────────────
             _header("Course Catalogue")
             courses = svc.list_courses()
             if not courses:
@@ -120,10 +152,9 @@ def _course_management_menu(svc, persistence, repos) -> None:
                 print()
 
         elif choice == "2":
-            # ── Add ───────────────────────────────────────────────────
             _header("Add Course")
-            code    = input("  Course code  (e.g. CS401): ").strip().upper()
-            title   = input("  Title: ").strip()
+            code        = input("  Course code  (e.g. CS401): ").strip().upper()
+            title       = input("  Title: ").strip()
             credits_raw = input("  Credits (integer): ").strip()
             prereq_raw  = input("  Prerequisites (comma-separated codes, or blank): ").strip()
 
@@ -148,17 +179,12 @@ def _course_management_menu(svc, persistence, repos) -> None:
                 persistence.save(repos)
 
         elif choice == "3":
-            # ── Edit ──────────────────────────────────────────────────
             _header("Edit Course")
-
-            # Show current courses to help the user pick one
             for c in svc.list_courses():
                 print(_fmt_course(c))
                 print()
 
             code = input("  Course code to edit: ").strip().upper()
-
-            # Fetch and display the current values so the user knows what to change
             existing = svc.get_course(code)
             if isinstance(existing, ErrorDTO):
                 print(f"\n  x {existing.message}")
@@ -173,11 +199,10 @@ def _course_management_menu(svc, persistence, repos) -> None:
             credits_raw = input(f"  New credits [{existing.credits}]: ").strip()
             prereq_raw  = input(
                 f"  New prerequisites [{', '.join(existing.prerequisites) or 'none'}] "
-                "(comma-separated, or CLEAR to remove all): "
+                "(comma-separated, or CLEAR): "
             ).strip()
 
-            # None means "leave unchanged"; parse only when the user typed something
-            parsed_title   = new_title   if new_title   else None
+            parsed_title   = new_title if new_title else None
             parsed_credits = None
             if credits_raw:
                 try:
@@ -187,10 +212,6 @@ def _course_management_menu(svc, persistence, repos) -> None:
                     input("\n  Press Enter to continue...")
                     continue
 
-            # Prerequisite handling:
-            #   blank         → None (no change)
-            #   "CLEAR"       → [] (remove all)
-            #   "CS101,CS201" → ["CS101", "CS201"] (replace list)
             parsed_prereqs = None
             if prereq_raw.upper() == "CLEAR":
                 parsed_prereqs = []
@@ -211,16 +232,12 @@ def _course_management_menu(svc, persistence, repos) -> None:
                 persistence.save(repos)
 
         elif choice == "4":
-            # ── Delete ────────────────────────────────────────────────
             _header("Delete Course")
-
             for c in svc.list_courses():
                 print(_fmt_course(c))
                 print()
 
             code = input("  Course code to delete: ").strip().upper()
-
-            # Show what will be deleted and ask for confirmation
             existing = svc.get_course(code)
             if isinstance(existing, ErrorDTO):
                 print(f"\n  x {existing.message}")
@@ -250,6 +267,432 @@ def _course_management_menu(svc, persistence, repos) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Student management submenu
+# ---------------------------------------------------------------------------
+
+def _student_management_menu(svc, persistence, repos) -> None:
+    while True:
+        _header("Student Management")
+        print("  1. List all students")
+        print("  2. Add a student")
+        print("  3. Edit a student")
+        print("  4. Delete a student")
+        print("  0. Back\n")
+
+        choice = input("  Select option: ").strip()
+
+        if choice == "1":
+            _header("All Students")
+            students = svc.list_students()
+            if not students:
+                print("  (no students registered)")
+            for s in students:
+                print(_fmt_student(s))
+                print()
+
+        elif choice == "2":
+            _header("Add Student")
+            sid     = input("  Student ID  (e.g. S004): ").strip()
+            name    = input("  Full name: ").strip()
+            program = input("  Program: ").strip()
+
+            if not sid or not name or not program:
+                print("\n  x ID, name, and program are all required.")
+                input("\n  Press Enter to continue...")
+                continue
+
+            result = svc.add_student(sid, name, program)
+            if isinstance(result, ErrorDTO):
+                print(f"\n  x {result.message}")
+            else:
+                print(f"\n  + {result.message}")
+                print(_fmt_student(result.student))
+                persistence.save(repos)
+
+        elif choice == "3":
+            _header("Edit Student")
+            for s in svc.list_students():
+                print(_fmt_student(s))
+                print()
+
+            sid = input("  Student ID to edit: ").strip()
+            existing = svc.get_student(sid)
+            if isinstance(existing, ErrorDTO):
+                print(f"\n  x {existing.message}")
+                input("\n  Press Enter to continue...")
+                continue
+
+            print(f"\n  Current values for {sid}:")
+            print(_fmt_student(existing))
+            print("\n  Press Enter on any field to leave it unchanged.\n")
+
+            new_name    = input(f"  New name [{existing.name}]: ").strip()
+            new_program = input(f"  New program [{existing.program}]: ").strip()
+
+            parsed_name    = new_name    if new_name    else None
+            parsed_program = new_program if new_program else None
+
+            if parsed_name is None and parsed_program is None:
+                print("  No changes entered.")
+                input("\n  Press Enter to continue...")
+                continue
+
+            result = svc.update_student(sid, new_name=parsed_name, new_program=parsed_program)
+            if isinstance(result, ErrorDTO):
+                print(f"\n  x {result.message}")
+            else:
+                print(f"\n  + {result.message}")
+                print(_fmt_student(result.student))
+                persistence.save(repos)
+
+        elif choice == "4":
+            _header("Delete Student")
+            for s in svc.list_students():
+                print(_fmt_student(s))
+                print()
+
+            sid = input("  Student ID to delete: ").strip()
+            existing = svc.get_student(sid)
+            if isinstance(existing, ErrorDTO):
+                print(f"\n  x {existing.message}")
+                input("\n  Press Enter to continue...")
+                continue
+
+            print(f"\n  About to delete:")
+            print(_fmt_student(existing))
+            confirm = input("\n  Type YES to confirm: ").strip()
+
+            if confirm != "YES":
+                print("  Deletion cancelled.")
+            else:
+                result = svc.delete_student(sid)
+                if isinstance(result, ErrorDTO):
+                    print(f"\n  x {result.message}")
+                else:
+                    print(f"\n  + {result.message}")
+                    persistence.save(repos)
+
+        elif choice == "0":
+            break
+        else:
+            print("  Invalid option.")
+
+        input("\n  Press Enter to continue...")
+
+
+# ---------------------------------------------------------------------------
+# Instructor management submenu
+# ---------------------------------------------------------------------------
+
+def _instructor_management_menu(svc, persistence, repos) -> None:
+    while True:
+        _header("Instructor Management")
+        print("  1. List all instructors")
+        print("  2. Add an instructor")
+        print("  3. Edit an instructor")
+        print("  4. Delete an instructor")
+        print("  0. Back\n")
+
+        choice = input("  Select option: ").strip()
+
+        if choice == "1":
+            _header("All Instructors")
+            instructors = svc.list_instructors()
+            if not instructors:
+                print("  (no instructors on record)")
+            for i in instructors:
+                print(_fmt_instructor(i))
+                print()
+
+        elif choice == "2":
+            _header("Add Instructor")
+            iid        = input("  Instructor ID  (e.g. I003): ").strip()
+            name       = input("  Full name: ").strip()
+            department = input("  Department: ").strip()
+
+            if not iid or not name or not department:
+                print("\n  x ID, name, and department are all required.")
+                input("\n  Press Enter to continue...")
+                continue
+
+            result = svc.add_instructor(iid, name, department)
+            if isinstance(result, ErrorDTO):
+                print(f"\n  x {result.message}")
+            else:
+                print(f"\n  + {result.message}")
+                print(_fmt_instructor(result.instructor))
+                persistence.save(repos)
+
+        elif choice == "3":
+            _header("Edit Instructor")
+            for i in svc.list_instructors():
+                print(_fmt_instructor(i))
+                print()
+
+            iid = input("  Instructor ID to edit: ").strip()
+            existing = svc.get_instructor(iid)
+            if isinstance(existing, ErrorDTO):
+                print(f"\n  x {existing.message}")
+                input("\n  Press Enter to continue...")
+                continue
+
+            print(f"\n  Current values for {iid}:")
+            print(_fmt_instructor(existing))
+            print("\n  Press Enter on any field to leave it unchanged.\n")
+
+            new_name = input(f"  New name [{existing.name}]: ").strip()
+            new_dept = input(f"  New department [{existing.department}]: ").strip()
+
+            parsed_name = new_name if new_name else None
+            parsed_dept = new_dept if new_dept else None
+
+            if parsed_name is None and parsed_dept is None:
+                print("  No changes entered.")
+                input("\n  Press Enter to continue...")
+                continue
+
+            result = svc.update_instructor(iid, new_name=parsed_name, new_department=parsed_dept)
+            if isinstance(result, ErrorDTO):
+                print(f"\n  x {result.message}")
+            else:
+                print(f"\n  + {result.message}")
+                print(_fmt_instructor(result.instructor))
+                persistence.save(repos)
+
+        elif choice == "4":
+            _header("Delete Instructor")
+            for i in svc.list_instructors():
+                print(_fmt_instructor(i))
+                print()
+
+            iid = input("  Instructor ID to delete: ").strip()
+            existing = svc.get_instructor(iid)
+            if isinstance(existing, ErrorDTO):
+                print(f"\n  x {existing.message}")
+                input("\n  Press Enter to continue...")
+                continue
+
+            print(f"\n  About to delete:")
+            print(_fmt_instructor(existing))
+            confirm = input("\n  Type YES to confirm: ").strip()
+
+            if confirm != "YES":
+                print("  Deletion cancelled.")
+            else:
+                result = svc.delete_instructor(iid)
+                if isinstance(result, ErrorDTO):
+                    print(f"\n  x {result.message}")
+                else:
+                    print(f"\n  + {result.message}")
+                    persistence.save(repos)
+
+        elif choice == "0":
+            break
+        else:
+            print("  Invalid option.")
+
+        input("\n  Press Enter to continue...")
+
+
+# ---------------------------------------------------------------------------
+# Offering management submenu
+# ---------------------------------------------------------------------------
+
+def _offering_management_menu(svc, persistence, repos, semester) -> None:
+    while True:
+        _header("Offering Management")
+        print("  1. List all offerings")
+        print("  2. Create an offering")
+        print("  3. Edit an offering  (capacity / schedule — SCHEDULED only)")
+        print("  4. Open an offering  (SCHEDULED → OPEN)")
+        print("  5. Close an offering (OPEN → CLOSED)")
+        print("  6. Delete an offering")
+        print("  0. Back\n")
+
+        choice = input("  Select option: ").strip()
+
+        if choice == "1":
+            _header("All Offerings")
+            offerings = svc.list_offerings()
+            if not offerings:
+                print("  (no offerings)")
+            for o in offerings:
+                print(_fmt_offering(o))
+                print()
+
+        elif choice == "2":
+            _header("Create Offering")
+
+            # Show available courses and instructors as a quick reference.
+            print("  Available courses:")
+            for c in svc.list_courses():
+                print(f"    [{c.course_code}] {c.title}")
+            print()
+            print("  Available instructors:")
+            for i in svc.list_instructors():
+                print(f"    [{i.instructor_id}] {i.name}")
+            print()
+
+            oid          = input("  New offering ID  (e.g. OFF004): ").strip()
+            course_code  = input("  Course code: ").strip().upper()
+            instructor_id = input("  Instructor ID: ").strip()
+            capacity_raw = input("  Capacity (integer): ").strip()
+            sched_raw    = input(
+                "  Schedule (e.g. Monday 08:00-09:30, Wednesday 08:00-09:30)\n"
+                "  or blank for TBD: "
+            ).strip()
+
+            if not oid or not course_code or not instructor_id:
+                print("\n  x Offering ID, course code, and instructor ID are required.")
+                input("\n  Press Enter to continue...")
+                continue
+
+            try:
+                capacity = int(capacity_raw)
+            except ValueError:
+                print("\n  x Capacity must be a whole number.")
+                input("\n  Press Enter to continue...")
+                continue
+
+            slots, err = _parse_schedule(sched_raw)
+            if err:
+                print(f"\n  x {err}")
+                input("\n  Press Enter to continue...")
+                continue
+
+            result = svc.create_offering(
+                oid, course_code, instructor_id, semester, capacity, slots
+            )
+            if isinstance(result, ErrorDTO):
+                print(f"\n  x {result.message}")
+            else:
+                print(f"\n  + {result.message}")
+                print(_fmt_offering(result.offering))
+                persistence.save(repos)
+
+        elif choice == "3":
+            _header("Edit Offering")
+            print("  Note: only SCHEDULED offerings can be edited.\n")
+            for o in svc.list_offerings():
+                print(_fmt_offering(o))
+                print()
+
+            oid = input("  Offering ID to edit: ").strip()
+            existing = svc.get_offering(oid)
+            if isinstance(existing, ErrorDTO):
+                print(f"\n  x {existing.message}")
+                input("\n  Press Enter to continue...")
+                continue
+
+            print(f"\n  Current values for {oid}:")
+            print(_fmt_offering(existing))
+            print("\n  Press Enter on any field to leave it unchanged.\n")
+
+            capacity_raw = input(f"  New capacity [{existing.capacity}]: ").strip()
+            current_sched = ", ".join(
+                f"{s.day} {s.start_time}-{s.end_time}" for s in existing.schedule
+            ) or "TBD"
+            sched_raw = input(
+                f"  New schedule [{current_sched}]\n"
+                "  (e.g. Monday 08:00-09:30, Wednesday 08:00-09:30 or CLEAR): "
+            ).strip()
+
+            parsed_capacity = None
+            if capacity_raw:
+                try:
+                    parsed_capacity = int(capacity_raw)
+                except ValueError:
+                    print("\n  x Capacity must be a whole number.")
+                    input("\n  Press Enter to continue...")
+                    continue
+
+            parsed_schedule = None
+            if sched_raw.upper() == "CLEAR":
+                parsed_schedule = []
+            elif sched_raw:
+                parsed_schedule, err = _parse_schedule(sched_raw)
+                if err:
+                    print(f"\n  x {err}")
+                    input("\n  Press Enter to continue...")
+                    continue
+
+            if parsed_capacity is None and parsed_schedule is None:
+                print("  No changes entered.")
+                input("\n  Press Enter to continue...")
+                continue
+
+            result = svc.update_offering(oid, new_capacity=parsed_capacity, new_schedule=parsed_schedule)
+            if isinstance(result, ErrorDTO):
+                print(f"\n  x {result.message}")
+            else:
+                print(f"\n  + {result.message}")
+                print(_fmt_offering(result.offering))
+                persistence.save(repos)
+
+        elif choice == "4":
+            _header("Open Offering")
+            for o in svc.list_offerings():
+                print(_fmt_offering(o))
+                print()
+
+            oid = input("  Offering ID to open: ").strip()
+            result = svc.open_offering(oid)
+            if isinstance(result, ErrorDTO):
+                print(f"\n  x {result.message}")
+            else:
+                print(f"\n  + Offering '{oid}' is now OPEN.")
+                persistence.save(repos)
+
+        elif choice == "5":
+            _header("Close Offering")
+            for o in svc.list_offerings():
+                print(_fmt_offering(o))
+                print()
+
+            oid = input("  Offering ID to close: ").strip()
+            result = svc.close_offering(oid)
+            if isinstance(result, ErrorDTO):
+                print(f"\n  x {result.message}")
+            else:
+                print(f"\n  + Offering '{oid}' is now CLOSED.")
+                persistence.save(repos)
+
+        elif choice == "6":
+            _header("Delete Offering")
+            for o in svc.list_offerings():
+                print(_fmt_offering(o))
+                print()
+
+            oid = input("  Offering ID to delete: ").strip()
+            existing = svc.get_offering(oid)
+            if isinstance(existing, ErrorDTO):
+                print(f"\n  x {existing.message}")
+                input("\n  Press Enter to continue...")
+                continue
+
+            print(f"\n  About to delete:")
+            print(_fmt_offering(existing))
+            confirm = input("\n  Type YES to confirm: ").strip()
+
+            if confirm != "YES":
+                print("  Deletion cancelled.")
+            else:
+                result = svc.delete_offering(oid)
+                if isinstance(result, ErrorDTO):
+                    print(f"\n  x {result.message}")
+                else:
+                    print(f"\n  + {result.message}")
+                    persistence.save(repos)
+
+        elif choice == "0":
+            break
+        else:
+            print("  Invalid option.")
+
+        input("\n  Press Enter to continue...")
+
+
+# ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
 
@@ -259,7 +702,6 @@ def main() -> None:
         event_handlers=[_cli_event_handler]
     )
 
-    # Seed demo data on first run (data file does not exist yet).
     if not svc.list_students():
         seed_demo_data(svc, semester)
         persistence.save(repos)
@@ -267,15 +709,18 @@ def main() -> None:
 
     while True:
         _header("University Course Registration System")
-        print("  1. View course offerings")
-        print("  2. View students")
-        print("  3. Enroll a student")
-        print("  4. Drop a student")
-        print("  5. View student schedule")
-        print("  6. Search courses")
-        print("  7. Mark course completed")
-        print("  8. Course management  (add / edit / delete)")
-        print("  0. Exit\n")
+        print("  1.  View course offerings")
+        print("  2.  View students")
+        print("  3.  Enroll a student")
+        print("  4.  Drop a student")
+        print("  5.  View student schedule")
+        print("  6.  Search courses")
+        print("  7.  Mark course completed")
+        print("  8.  Course management     (add / edit / delete)")
+        print("  9.  Student management    (add / edit / delete)")
+        print("  10. Instructor management (add / edit / delete)")
+        print("  11. Offering management   (create / edit / open / close / delete)")
+        print("  0.  Exit\n")
 
         choice = input("  Select option: ").strip()
 
@@ -293,8 +738,8 @@ def main() -> None:
 
         elif choice == "3":
             _header("Enroll Student")
-            sid    = input("  Student ID  (S001 / S002 / S003): ").strip()
-            oid    = input("  Offering ID (OFF001 / OFF002 / OFF003): ").strip()
+            sid    = input("  Student ID: ").strip()
+            oid    = input("  Offering ID: ").strip()
             result = svc.enroll_student(sid, oid)
             if isinstance(result, ErrorDTO):
                 print(f"\n  x {result.message}")
@@ -349,9 +794,20 @@ def main() -> None:
                 persistence.save(repos)
 
         elif choice == "8":
-            # Delegate entirely to the course management submenu.
             _course_management_menu(svc, persistence, repos)
-            continue  # skip the "press enter" prompt — submenu has its own
+            continue
+
+        elif choice == "9":
+            _student_management_menu(svc, persistence, repos)
+            continue
+
+        elif choice == "10":
+            _instructor_management_menu(svc, persistence, repos)
+            continue
+
+        elif choice == "11":
+            _offering_management_menu(svc, persistence, repos, semester)
+            continue
 
         elif choice == "0":
             print("\n  Goodbye!\n")

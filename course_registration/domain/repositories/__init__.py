@@ -33,6 +33,10 @@ class StudentRepository(ABC):
     @abstractmethod
     def find_all(self) -> List[Student]:
         """Return every Student in the system."""
+        
+    @abstractmethod
+    def delete(self, student_id: str) -> None:
+        """Permanently remove a Student."""
 
 
 class CourseRepository(ABC):
@@ -74,6 +78,10 @@ class InstructorRepository(ABC):
     @abstractmethod
     def find_all(self) -> List[Instructor]:
         """Return every Instructor."""
+    
+    @abstractmethod
+    def delete(self, instructor_id: str) -> None:
+        """Permanently remove an Instructor."""
 
 
 class CourseOfferingRepository(ABC):
@@ -106,3 +114,19 @@ class CourseOfferingRepository(ABC):
     @abstractmethod
     def find_all(self) -> List[CourseOffering]:
         """Return every CourseOffering in the system."""
+
+    @abstractmethod
+    def delete(self, offering_id: str) -> None:
+        """Permanently remove a CourseOffering."""
+
+    @abstractmethod
+    def find_by_instructor(self, instructor_id: str) -> List[CourseOffering]:
+        """Return all offerings taught by this instructor."""
+        
+    @abstractmethod
+    def delete(self, offering_id: str) -> None:
+        """Permanently remove a CourseOffering."""
+
+    @abstractmethod
+    def find_by_instructor(self, instructor_id: str) -> List[CourseOffering]:
+        """Return all offerings taught by this instructor."""

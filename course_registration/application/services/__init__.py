@@ -21,8 +21,23 @@ GUI-readiness
 Course management methods
 -------------------------
 add_course()     — already existed; now also fires CourseCreated event
-update_course()  — NEW: change title, credits, and/or prerequisites
-delete_course()  — NEW: remove a course; blocked if active offerings exist
+update_course()  — change title, credits, and/or prerequisites
+delete_course()  — remove a course; blocked if active offerings exist
+
+Student management methods
+--------------------------
+update_student() — change name and/or program
+delete_student() — remove a student; blocked if enrolled in any offering
+
+Instructor management methods
+------------------------------
+update_instructor() — change name and/or department
+delete_instructor() — remove an instructor; blocked if assigned to any offering
+
+Offering management methods
+----------------------------
+update_offering() — change capacity and/or schedule; only while SCHEDULED
+delete_offering() — remove an offering; blocked if students are enrolled/waitlisted
 """
 
 from __future__ import annotations
@@ -39,11 +54,19 @@ from course_registration.domain.repositories  import (
 )
 from course_registration.domain.events import (
     CourseCreated, CourseUpdated, CourseDeleted,
+    StudentUpdated, StudentDeleted,
+    InstructorUpdated, InstructorDeleted,
+    OfferingUpdated, OfferingDeleted,
 )
 from course_registration.application.dtos import (
     CourseDTO, InstructorDTO, StudentDTO,
     ScheduleSlotDTO, OfferingDTO,
-    EnrollmentResultDTO, CourseManagementResultDTO, ErrorDTO,
+    EnrollmentResultDTO,
+    CourseManagementResultDTO,
+    StudentManagementResultDTO,
+    InstructorManagementResultDTO,
+    OfferingManagementResultDTO,
+    ErrorDTO,
 )
 from course_registration.application.services.event_publisher import EventPublisher
 
@@ -51,8 +74,6 @@ from course_registration.application.services.event_publisher import EventPublis
 # ---------------------------------------------------------------------------
 # DTO assemblers — private helpers
 # ---------------------------------------------------------------------------
-# These translate domain objects into DTOs.  They live in the application
-# layer (not the domain) because the domain must never know about DTOs.
 
 def _course_dto(c: Course) -> CourseDTO:
     return CourseDTO(
@@ -132,7 +153,6 @@ class RegistrationAppService:
         Returns CourseManagementResultDTO(action="created") on success.
         Returns ErrorDTO with code DUPLICATE_COURSE_CODE if the code already exists.
         """
-        # Guard: course codes must be unique
         if self._courses.find_by_code(course_code):
             return ErrorDTO(
                 f"A course with code '{course_code}' already exists.",
@@ -141,7 +161,6 @@ class RegistrationAppService:
 
         course = Course(course_code=course_code, title=title, credits=credits)
 
-        # Resolve prerequisites — skip codes that don't exist yet (best-effort)
         for code in (prerequisite_codes or []):
             prereq = self._courses.find_by_code(code)
             if prereq:
@@ -168,25 +187,8 @@ class RegistrationAppService:
         """
         Update an existing Course's title, credit value, and/or prerequisites.
 
-        Parameters
-        ----------
-        course_code
-            The code identifying the course to update.
-        new_title
-            Pass a string to change the title, or None to leave it unchanged.
-        new_credits
-            Pass an integer to change the credits, or None to leave unchanged.
-        new_prereq_codes
-            Pass a list of course codes to replace the full prerequisite list.
-            Pass [] to clear all prerequisites.
-            Pass None to leave prerequisites unchanged.
-
-        Business rules enforced
-        -----------------------
-        - A course cannot be its own prerequisite.
-        - Every prerequisite code must refer to an existing course.
-        - Credits must be a positive integer.
-        - Title cannot be blank.
+        Pass None for any parameter to leave it unchanged.
+        Pass [] for new_prereq_codes to clear all prerequisites.
 
         Returns CourseManagementResultDTO(action="updated") on success.
         Returns ErrorDTO on validation failure or if the course is not found.
@@ -195,7 +197,6 @@ class RegistrationAppService:
         if isinstance(course, ErrorDTO):
             return course
 
-        # Build a lookup dict needed by Course.update() to resolve prereq codes
         all_courses = {c.course_code: c for c in self._courses.find_all()}
 
         try:
@@ -227,17 +228,8 @@ class RegistrationAppService:
         """
         Permanently delete a Course from the catalogue.
 
-        Safety checks performed before deletion
-        ----------------------------------------
-        1. The course must exist.
-        2. No CourseOffering (in any status) may still reference this course.
-           Deleting a course that has offerings would leave those offerings
-           referencing a non-existent catalogue entry.
-        3. The course must not appear in any other course's prerequisite list.
-           Deleting it would silently break those prerequisite chains.
-
-        If any check fails, an ErrorDTO with code COURSE_IN_USE is returned
-        and the course is NOT deleted.
+        Blocked if any CourseOffering references this course, or if any other
+        course lists it as a prerequisite.
 
         Returns CourseManagementResultDTO(action="deleted", course=None) on success.
         """
@@ -245,7 +237,6 @@ class RegistrationAppService:
         if isinstance(course, ErrorDTO):
             return course
 
-        # Check 1 — active or historical offerings
         offerings_using = self._offerings.find_by_course(course_code)
         if offerings_using:
             offering_ids = ", ".join(o.offering_id for o in offerings_using)
@@ -255,7 +246,6 @@ class RegistrationAppService:
                 "COURSE_IN_USE",
             )
 
-        # Check 2 — other courses that list this as a prerequisite
         dependents = [
             c.course_code for c in self._courses.find_all()
             if any(p.course_code == course_code for p in c.prerequisites)
@@ -267,7 +257,7 @@ class RegistrationAppService:
                 "COURSE_IN_USE",
             )
 
-        title = course.title  # capture before deletion for the event/message
+        title = course.title
         self._courses.delete(course_code)
         self._publisher.publish(CourseDeleted(
             occurred_on=datetime.now(), course_code=course_code, title=title
@@ -280,20 +270,225 @@ class RegistrationAppService:
         )
 
     # ------------------------------------------------------------------
-    # Other setup commands
+    # Student management — add, update, delete
     # ------------------------------------------------------------------
 
-    def add_student(self, student_id: str, name: str, program: str) -> StudentDTO:
-        """Create and persist a new Student; return its DTO."""
+    def add_student(
+        self, student_id: str, name: str, program: str
+    ) -> Union[StudentManagementResultDTO, ErrorDTO]:
+        """
+        Create and persist a new Student.
+
+        Returns StudentManagementResultDTO(action="created") on success.
+        Returns ErrorDTO with code DUPLICATE_STUDENT_ID if the ID already exists.
+        """
+        if self._students.find_by_id(student_id):
+            return ErrorDTO(
+                f"A student with ID '{student_id}' already exists.",
+                "DUPLICATE_STUDENT_ID",
+            )
+
         student = Student(student_id=student_id, name=name, program=program)
         self._students.save(student)
-        return _student_dto(student)
 
-    def add_instructor(self, instructor_id: str, name: str, department: str) -> InstructorDTO:
-        """Create and persist a new Instructor; return its DTO."""
+        return StudentManagementResultDTO(
+            success=True, action="created",
+            message=f"Student '{name}' ({student_id}) added.",
+            student=_student_dto(student),
+        )
+
+    def update_student(
+        self,
+        student_id   : str,
+        new_name     : str = None,
+        new_program  : str = None,
+    ) -> Union[StudentManagementResultDTO, ErrorDTO]:
+        """
+        Update an existing Student's name and/or program.
+
+        Pass None for any parameter to leave it unchanged.
+
+        Returns StudentManagementResultDTO(action="updated") on success.
+        Returns ErrorDTO on validation failure or if the student is not found.
+        """
+        student = self._get_student_domain(student_id)
+        if isinstance(student, ErrorDTO):
+            return student
+
+        try:
+            student.update(name=new_name, program=new_program)
+        except ValueError as e:
+            return ErrorDTO(str(e), "VALIDATION_ERROR")
+
+        self._students.save(student)
+        self._publisher.publish(StudentUpdated(
+            occurred_on=datetime.now(),
+            student_id=student.student_id,
+            name=student.name,
+        ))
+
+        return StudentManagementResultDTO(
+            success=True, action="updated",
+            message=f"Student '{student_id}' updated successfully.",
+            student=_student_dto(student),
+        )
+
+    def delete_student(
+        self, student_id: str
+    ) -> Union[StudentManagementResultDTO, ErrorDTO]:
+        """
+        Permanently delete a Student from the system.
+
+        Blocked if the student is currently enrolled in or waitlisted for any
+        offering.  Dropping them first is required so that waitlist promotion
+        logic fires correctly and enrollment counts stay accurate.
+
+        Returns StudentManagementResultDTO(action="deleted", student=None) on success.
+        Returns ErrorDTO with code STUDENT_IN_USE if enrollments exist.
+        """
+        student = self._get_student_domain(student_id)
+        if isinstance(student, ErrorDTO):
+            return student
+
+        active_offerings = self._offerings.find_by_student(student_id)
+        if active_offerings:
+            offering_ids = ", ".join(o.offering_id for o in active_offerings)
+            return ErrorDTO(
+                f"Cannot delete '{student_id}': they are enrolled in "
+                f"offering(s) {offering_ids}. Drop them first.",
+                "STUDENT_IN_USE",
+            )
+
+        # Also check waitlists — find_by_student only returns enrolled offerings.
+        waitlisted = [
+            o for o in self._offerings.find_all()
+            if any(s.student_id == student_id for s in o.waitlist)
+        ]
+        if waitlisted:
+            offering_ids = ", ".join(o.offering_id for o in waitlisted)
+            return ErrorDTO(
+                f"Cannot delete '{student_id}': they are on the waitlist for "
+                f"offering(s) {offering_ids}. Drop them first.",
+                "STUDENT_IN_USE",
+            )
+
+        name = student.name
+        self._students.delete(student_id)
+        self._publisher.publish(StudentDeleted(
+            occurred_on=datetime.now(), student_id=student_id, name=name
+        ))
+
+        return StudentManagementResultDTO(
+            success=True, action="deleted",
+            message=f"Student '{student_id} - {name}' removed from the system.",
+            student=None,
+        )
+
+    # ------------------------------------------------------------------
+    # Instructor management — add, update, delete
+    # ------------------------------------------------------------------
+
+    def add_instructor(
+        self, instructor_id: str, name: str, department: str
+    ) -> Union[InstructorManagementResultDTO, ErrorDTO]:
+        """
+        Create and persist a new Instructor.
+
+        Returns InstructorManagementResultDTO(action="created") on success.
+        Returns ErrorDTO with code DUPLICATE_INSTRUCTOR_ID if the ID already exists.
+        """
+        if self._instructors.find_by_id(instructor_id):
+            return ErrorDTO(
+                f"An instructor with ID '{instructor_id}' already exists.",
+                "DUPLICATE_INSTRUCTOR_ID",
+            )
+
         instructor = Instructor(instructor_id=instructor_id, name=name, department=department)
         self._instructors.save(instructor)
-        return _instructor_dto(instructor)
+
+        return InstructorManagementResultDTO(
+            success=True, action="created",
+            message=f"Instructor '{name}' ({instructor_id}) added.",
+            instructor=_instructor_dto(instructor),
+        )
+
+    def update_instructor(
+        self,
+        instructor_id  : str,
+        new_name       : str = None,
+        new_department : str = None,
+    ) -> Union[InstructorManagementResultDTO, ErrorDTO]:
+        """
+        Update an existing Instructor's name and/or department.
+
+        Pass None for any parameter to leave it unchanged.
+
+        Returns InstructorManagementResultDTO(action="updated") on success.
+        Returns ErrorDTO on validation failure or if the instructor is not found.
+        """
+        instructor = self._get_instructor_domain(instructor_id)
+        if isinstance(instructor, ErrorDTO):
+            return instructor
+
+        try:
+            instructor.update(name=new_name, department=new_department)
+        except ValueError as e:
+            return ErrorDTO(str(e), "VALIDATION_ERROR")
+
+        self._instructors.save(instructor)
+        self._publisher.publish(InstructorUpdated(
+            occurred_on=datetime.now(),
+            instructor_id=instructor.instructor_id,
+            name=instructor.name,
+        ))
+
+        return InstructorManagementResultDTO(
+            success=True, action="updated",
+            message=f"Instructor '{instructor_id}' updated successfully.",
+            instructor=_instructor_dto(instructor),
+        )
+
+    def delete_instructor(
+        self, instructor_id: str
+    ) -> Union[InstructorManagementResultDTO, ErrorDTO]:
+        """
+        Permanently delete an Instructor from the system.
+
+        Blocked if any CourseOffering (in any status) references this instructor.
+        Reassign or delete those offerings first.
+
+        Returns InstructorManagementResultDTO(action="deleted", instructor=None) on success.
+        Returns ErrorDTO with code INSTRUCTOR_IN_USE if offerings exist.
+        """
+        instructor = self._get_instructor_domain(instructor_id)
+        if isinstance(instructor, ErrorDTO):
+            return instructor
+
+        offerings_using = self._offerings.find_by_instructor(instructor_id)
+        if offerings_using:
+            offering_ids = ", ".join(o.offering_id for o in offerings_using)
+            return ErrorDTO(
+                f"Cannot delete '{instructor_id}': they are assigned to "
+                f"offering(s) {offering_ids}. Remove those offerings first.",
+                "INSTRUCTOR_IN_USE",
+            )
+
+        name = instructor.name
+        self._instructors.delete(instructor_id)
+        self._publisher.publish(InstructorDeleted(
+            occurred_on=datetime.now(), instructor_id=instructor_id, name=name
+        ))
+
+        return InstructorManagementResultDTO(
+            success=True, action="deleted",
+            message=f"Instructor '{instructor_id} - {name}' removed from the system.",
+            instructor=None,
+        )
+
+    # ------------------------------------------------------------------
+    # Offering management — create, update, delete
+    # (open/close lifecycle remain as separate methods below)
+    # ------------------------------------------------------------------
 
     def create_offering(
         self,
@@ -303,20 +498,129 @@ class RegistrationAppService:
         semester      : Semester,
         capacity      : int,
         schedule      : List[ScheduleSlot] = None,
-    ) -> Union[OfferingDTO, ErrorDTO]:
-        """Create and persist a new CourseOffering; return its DTO or an ErrorDTO."""
+    ) -> Union[OfferingManagementResultDTO, ErrorDTO]:
+        """
+        Create and persist a new CourseOffering.
+
+        Returns OfferingManagementResultDTO(action="created") on success.
+        Returns ErrorDTO if the course or instructor is not found, or if the
+        offering_id already exists.
+        """
+        if self._offerings.find_by_id(offering_id):
+            return ErrorDTO(
+                f"An offering with ID '{offering_id}' already exists.",
+                "DUPLICATE_OFFERING_ID",
+            )
+
         course     = self._courses.find_by_code(course_code)
         instructor = self._instructors.find_by_id(instructor_id)
         if not course:
             return ErrorDTO(f"Course '{course_code}' not found.", "NOT_FOUND")
         if not instructor:
             return ErrorDTO(f"Instructor '{instructor_id}' not found.", "NOT_FOUND")
+
         offering = CourseOffering(
             offering_id=offering_id, course=course, instructor=instructor,
             semester=semester, capacity=capacity, schedule=schedule or [],
         )
         self._offerings.save(offering)
-        return _offering_dto(offering)
+
+        return OfferingManagementResultDTO(
+            success=True, action="created",
+            message=f"Offering '{offering_id}' for '{course.title}' created.",
+            offering=_offering_dto(offering),
+        )
+
+    def update_offering(
+        self,
+        offering_id  : str,
+        new_capacity : int = None,
+        new_schedule : List[ScheduleSlot] = None,
+    ) -> Union[OfferingManagementResultDTO, ErrorDTO]:
+        """
+        Update a CourseOffering's capacity and/or schedule.
+
+        Only permitted while the offering is in SCHEDULED status (before it
+        has been opened for enrollment).  Once students can enroll, changes
+        to capacity or schedule could silently violate their expectations.
+
+        Pass None for any parameter to leave it unchanged.
+
+        Returns OfferingManagementResultDTO(action="updated") on success.
+        Returns ErrorDTO with code INVALID_STATE if the offering is not SCHEDULED,
+        or VALIDATION_ERROR if the new values fail domain rules.
+        """
+        offering = self._get_offering_domain(offering_id)
+        if isinstance(offering, ErrorDTO):
+            return offering
+
+        try:
+            offering.update(capacity=new_capacity, schedule=new_schedule)
+        except EnrollmentError as e:
+            return ErrorDTO(str(e), "INVALID_STATE")
+
+        self._offerings.save(offering)
+        self._publisher.publish(OfferingUpdated(
+            occurred_on=datetime.now(),
+            offering_id=offering.offering_id,
+            course_code=offering.course.course_code,
+        ))
+
+        return OfferingManagementResultDTO(
+            success=True, action="updated",
+            message=f"Offering '{offering_id}' updated successfully.",
+            offering=_offering_dto(offering),
+        )
+
+    def delete_offering(
+        self, offering_id: str
+    ) -> Union[OfferingManagementResultDTO, ErrorDTO]:
+        """
+        Permanently delete a CourseOffering.
+
+        Blocked if any students are currently enrolled in or waitlisted for
+        the offering.  Drop all students first, or close the offering and
+        then delete it if enrollment tracking is no longer needed.
+
+        Returns OfferingManagementResultDTO(action="deleted", offering=None) on success.
+        Returns ErrorDTO with code OFFERING_IN_USE if students are attached.
+        """
+        offering = self._get_offering_domain(offering_id)
+        if isinstance(offering, ErrorDTO):
+            return offering
+
+        if offering.enrolled:
+            names = ", ".join(s.name for s in offering.enrolled)
+            return ErrorDTO(
+                f"Cannot delete '{offering_id}': {len(offering.enrolled)} student(s) "
+                f"are enrolled ({names}). Drop them first.",
+                "OFFERING_IN_USE",
+            )
+        if offering.waitlist:
+            names = ", ".join(s.name for s in offering.waitlist)
+            return ErrorDTO(
+                f"Cannot delete '{offering_id}': {len(offering.waitlist)} student(s) "
+                f"are on the waitlist ({names}). Drop them first.",
+                "OFFERING_IN_USE",
+            )
+
+        course_code = offering.course.course_code
+        self._offerings.delete(offering_id)
+        self._publisher.publish(OfferingDeleted(
+            occurred_on=datetime.now(),
+            offering_id=offering_id,
+            course_code=course_code,
+        ))
+
+        return OfferingManagementResultDTO(
+            success=True, action="deleted",
+            message=f"Offering '{offering_id}' deleted.",
+            offering=None,
+        )
+
+    # ------------------------------------------------------------------
+    # Offering lifecycle — open and close
+    # ------------------------------------------------------------------
 
     def open_offering(self, offering_id: str) -> Union[OfferingDTO, ErrorDTO]:
         """Transition a CourseOffering from SCHEDULED to OPEN."""
@@ -341,6 +645,10 @@ class RegistrationAppService:
             return _offering_dto(offering)
         except EnrollmentError as e:
             return ErrorDTO(str(e), "INVALID_STATE")
+
+    # ------------------------------------------------------------------
+    # Other setup commands
+    # ------------------------------------------------------------------
 
     def mark_student_completed(
         self, student_id: str, course_code: str
@@ -442,6 +750,9 @@ class RegistrationAppService:
     def list_courses(self) -> List[CourseDTO]:
         return [_course_dto(c) for c in self._courses.find_all()]
 
+    def list_instructors(self) -> List[InstructorDTO]:
+        return [_instructor_dto(i) for i in self._instructors.find_all()]
+
     def get_student_schedule(
         self, student_id: str
     ) -> Union[List[OfferingDTO], ErrorDTO]:
@@ -466,6 +777,27 @@ class RegistrationAppService:
             return course
         return _course_dto(course)
 
+    def get_student(self, student_id: str) -> Union[StudentDTO, ErrorDTO]:
+        """Return a single StudentDTO by ID, or ErrorDTO if not found."""
+        student = self._get_student_domain(student_id)
+        if isinstance(student, ErrorDTO):
+            return student
+        return _student_dto(student)
+
+    def get_instructor(self, instructor_id: str) -> Union[InstructorDTO, ErrorDTO]:
+        """Return a single InstructorDTO by ID, or ErrorDTO if not found."""
+        instructor = self._get_instructor_domain(instructor_id)
+        if isinstance(instructor, ErrorDTO):
+            return instructor
+        return _instructor_dto(instructor)
+
+    def get_offering(self, offering_id: str) -> Union[OfferingDTO, ErrorDTO]:
+        """Return a single OfferingDTO by ID, or ErrorDTO if not found."""
+        offering = self._get_offering_domain(offering_id)
+        if isinstance(offering, ErrorDTO):
+            return offering
+        return _offering_dto(offering)
+
     # ------------------------------------------------------------------
     # Private helpers — return domain objects OR ErrorDTO
     # ------------------------------------------------------------------
@@ -477,6 +809,10 @@ class RegistrationAppService:
     def _get_course_domain(self, course_code: str) -> Union[Course, ErrorDTO]:
         c = self._courses.find_by_code(course_code)
         return c if c else ErrorDTO(f"Course '{course_code}' not found.", "NOT_FOUND")
+
+    def _get_instructor_domain(self, instructor_id: str) -> Union[Instructor, ErrorDTO]:
+        i = self._instructors.find_by_id(instructor_id)
+        return i if i else ErrorDTO(f"Instructor '{instructor_id}' not found.", "NOT_FOUND")
 
     def _get_offering_domain(self, offering_id: str) -> Union[CourseOffering, ErrorDTO]:
         o = self._offerings.find_by_id(offering_id)

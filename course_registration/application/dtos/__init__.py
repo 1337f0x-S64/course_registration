@@ -142,3 +142,24 @@ class ErrorDTO:
     """
     message : str
     code    : str = "GENERAL_ERROR"
+
+@dataclass(frozen=True)
+class StudentManagementResultDTO:
+    success : bool
+    action  : str       # "created" | "updated" | "deleted"
+    message : str
+    student : StudentDTO   # None when action == "deleted"
+
+@dataclass(frozen=True)
+class InstructorManagementResultDTO:
+    success    : bool
+    action     : str
+    message    : str
+    instructor : InstructorDTO  # None when action == "deleted"
+
+@dataclass(frozen=True)
+class OfferingManagementResultDTO:
+    success  : bool
+    action   : str
+    message  : str
+    offering : OfferingDTO   # None when action == "deleted"

@@ -120,6 +120,18 @@ class CourseOffering:
         if self.status != OfferingStatus.CLOSED:
             raise EnrollmentError(f"Cannot complete from status {self.status}.")
         self.status = OfferingStatus.COMPLETED
+        
+    def update(self, capacity: int = None, schedule: list = None) -> None:
+        if self.status != OfferingStatus.SCHEDULED:
+            raise EnrollmentError(
+                "Cannot edit an offering that has already been opened."
+            )
+        if capacity is not None:
+            if capacity < 1:
+                raise EnrollmentError("Capacity must be at least 1.")
+            self.capacity = capacity
+        if schedule is not None:
+            self.schedule = schedule
 
     # ------------------------------------------------------------------
     # Commands — the only way to change enrollment state

@@ -161,9 +161,21 @@ class Instructor(Entity):
 
     def _identity(self):
         return self.instructor_id
+    
+    def update(self, name: str = None, department: str = None) -> None:
+        if name is not None:
+            if not name.strip():
+                raise ValueError("Instructor name cannot be blank.")
+            self.name = name.strip()
+        if department is not None:
+            if not department.strip():
+                raise ValueError("Department cannot be blank.")
+            self.department = department.strip()
 
     def __str__(self) -> str:
         return f"Prof. {self.name} ({self.department})"
+    
+    
 
 
 # ---------------------------------------------------------------------------
@@ -209,5 +221,15 @@ class Student(Entity):
         if course not in self.completed_courses:
             self.completed_courses.append(course)
 
+    def update(self, name: str = None, program: str = None) -> None:
+        if name is not None:
+            if not name.strip():
+                raise ValueError("Student name cannot be blank.")
+            self.name = name.strip()
+        if program is not None:
+            if not program.strip():
+                raise ValueError("Program cannot be blank.")
+            self.program = program.strip()
+    
     def __str__(self) -> str:
         return f"{self.name} [{self.student_id}] - {self.program}"

@@ -2,7 +2,7 @@
   "students": [
     {
       "student_id": "S001",
-      "name": "Pablo Vasquez",
+      "name": "James Dean",
       "program": "Computer Science",
       "completed_courses": [
         "CS101"
@@ -24,13 +24,13 @@
   "courses": [
     {
       "course_code": "CS101",
-      "title": "Intro to Computer Science",
+      "title": "Intro to Computers",
       "credits": 3,
       "prerequisites": []
     },
     {
       "course_code": "CS201",
-      "title": "Data Structures",
+      "title": "Discrete Mathematics",
       "credits": 3,
       "prerequisites": [
         "CS101"
@@ -38,7 +38,7 @@
     },
     {
       "course_code": "CS301",
-      "title": "Algorithms",
+      "title": "Data Structures & Algorithms",
       "credits": 3,
       "prerequisites": [
         "CS201"
@@ -57,18 +57,37 @@
       "prerequisites": [
         "MATH101"
       ]
+    },
+    {
+      "course_code": "SWE101",
+      "title": "Software Engineering 1",
+      "credits": 4,
+      "prerequisites": []
+    },
+    {
+      "course_code": "SWE201",
+      "title": "Software Engineering 2",
+      "credits": 3,
+      "prerequisites": [
+        "SWE101"
+      ]
     }
   ],
   "instructors": [
     {
       "instructor_id": "I001",
-      "name": "Dr. Ana Torres",
+      "name": "Ms. Tania Castro",
       "department": "Computer Science"
     },
     {
       "instructor_id": "I002",
-      "name": "Dr. Luis Mendez",
+      "name": "Dr. Luis Morales",
       "department": "Mathematics"
+    },
+    {
+      "instructor_id": "I003",
+      "name": "Mr. Pablo Vasquez",
+      "department": "Software Engineering"
     }
   ],
   "offerings": [
@@ -97,7 +116,9 @@
           "end_time": "09:30"
         }
       ],
-      "enrolled": [],
+      "enrolled": [
+        "S003"
+      ],
       "waitlist": []
     },
     {
@@ -151,6 +172,39 @@
           "day": "Wednesday",
           "start_time": "10:00",
           "end_time": "11:30"
+        }
+      ],
+      "enrolled": [],
+      "waitlist": []
+    },
+    {
+      "offering_id": "OFF004",
+      "course_code": "SWE101",
+      "instructor_id": "I003",
+      "semester": {
+        "semester_id": "SEM-2026-SP",
+        "term": "Spring",
+        "year": 2026,
+        "start_date": "2026-01-15",
+        "end_date": "2026-05-31"
+      },
+      "capacity": 15,
+      "status": "SCHEDULED",
+      "schedule": [
+        {
+          "day": "Monday",
+          "start_time": "1:00",
+          "end_time": "2:15"
+        },
+        {
+          "day": "Wednesday",
+          "start_time": "1:00",
+          "end_time": "2:15"
+        },
+        {
+          "day": "Friday",
+          "start_time": "1:00",
+          "end_time": "2:15"
         }
       ],
       "enrolled": [],

@@ -41,6 +41,8 @@ class InMemoryStudentRepository(StudentRepository):
     def find_all(self) -> List[Student]:
         return list(self._store.values())
 
+    def delete(self, student_id: str) -> None:
+        self._store.pop(student_id, None)
 
 class InMemoryCourseRepository(CourseRepository):
     """Stores Course entities in a dictionary keyed by course_code."""
@@ -60,6 +62,13 @@ class InMemoryCourseRepository(CourseRepository):
     def delete(self, course_code: str) -> None:
         """Remove the course from the store if it exists."""
         self._store.pop(course_code, None)
+        
+    def delete(self, offering_id: str) -> None:
+        self._store.pop(offering_id, None)
+
+    def find_by_instructor(self, instructor_id: str) -> List[CourseOffering]:
+        return [o for o in self._store.values()
+                if o.instructor.instructor_id == instructor_id]
 
 
 class InMemoryInstructorRepository(InstructorRepository):
@@ -76,6 +85,9 @@ class InMemoryInstructorRepository(InstructorRepository):
 
     def find_all(self) -> List[Instructor]:
         return list(self._store.values())
+    
+    def delete(self, instructor_id: str) -> None:
+        self._store.pop(instructor_id, None)
 
 
 class InMemoryCourseOfferingRepository(CourseOfferingRepository):
@@ -106,6 +118,15 @@ class InMemoryCourseOfferingRepository(CourseOfferingRepository):
         return [
             o for o in self._store.values()
             if o.course.course_code == course_code
+        ]
+
+    def delete(self, offering_id: str) -> None:
+        self._store.pop(offering_id, None)
+
+    def find_by_instructor(self, instructor_id: str) -> List[CourseOffering]:
+        return [
+            o for o in self._store.values()
+            if o.instructor.instructor_id == instructor_id
         ]
 
     def find_all(self) -> List[CourseOffering]:
